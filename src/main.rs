@@ -1,12 +1,17 @@
-use std::io; 
+use std::io; //for stdin
 use std::env; 
-use std::path::Path; 
-use std::fs::File; 
-use std::io::BufReader; 
-use std::io::Read; 
+use std::path::Path; //for filenames 
+use std::fs::File; //for the file
+use std::io::BufReader; //buffered reader so we can handle large files
+use std::io::Read; //to read from the above file
 
 fn main(){
-    let filename = String::from("a.out"); 
+    let mut args: Vec<_> = env::args().collect(); //get all the arguments
+    args.remove(0); //remove the first one b/c the first one is the filename
+    if args.len() != 1 { 
+        panic!("This program accepts 1 argument, you supplied it with {} arguments", args.len());
+    }
+    let filename = args[0].clone(); //clone() b/c we should leave args intact
 
     println!("Opening {} to search it for strings...", filename);   
     let file = openFile(filename.clone());
@@ -14,50 +19,57 @@ fn main(){
     searchFile(file);
 }
 
-fn isPrintable(char: u8) -> bool { 
-    if char >= 32u8 && char <= 126u8 {
+fn isPrintable(char: u8) -> bool { //checks whether the character (as a u8) is printable
+    if char >= 32u8 && char <= 126u8 {  //printable is 32..126
         return true;
     }
     return false;
 }
 
-fn checkForString(file: Vec<u8>, index: usize) -> (bool, u64) { 
-    let mut isFound = false;
-    let mut size = 0;   
-    let mut i = 0;  
+fn checkForString(file: Vec<u8>, index: usize) -> (bool, u64) { //bool is whether or not we did, u64 is the length of it if we did
+    let mut isFound = false; //by default we never found it
+    let mut size = 0;   //size=0 is the default
+    let mut i = 0;  //used in the loop{} structure as a counter
     loop {
-        if isPrintable(file[index+i]){  
-            i += 1; 
+        if isPrintable(file[index+i]){  //if it is printable, then just loop to go to the next one
+            i += 1; //must increment it so we go to the next character in the file
         }
-        if !isPrintable(file[index+i]){ 
+        if !isPrintable(file[index+i]){ //if it isn't printable then check if it is long enough yet
             size = i;
-            if size > 5 as usize {   
-                if file[index+i] == 0 { 
+            if size > 5 as usize {   //if it is long enough, then check if we should check if it is null terminated
+                if file[index+i] == 0 { //null terminated
                     isFound = true; 
                 }
                 else {
                     isFound = true; 
                 }
             } 
-            break; 
+            break; //once we find a non-printable character we break
         }
     }
-    return (isFound, size as u64)   
+    return (isFound, size as u64)   //return it as a u64 so it is sufficiently large
 }
 
-fn searchFile(file: Vec<u8>) { 
-    for (index,char) in file.iter().enumerate() { 
-        let temp = checkForString(file.clone(), index); 
-        if temp.0 { 
-            println!("{}", getString(file.clone(), index as u64, index as u64+temp.1)); 
+fn searchFile(file: Vec<u8>) { //given a vector of u8 will search the file
+    let mut numToSkip = 0;  //the number to skip (used when we find a 5 character string so we don't then print a 4 character string followed by a 3 character and so on
+    for (index,char) in file.iter().enumerate() { //index,char b/c we need both
+        if numToSkip > 0 { //if we need to skip, do so
+            numToSkip -= 1; //decrement it so we don't skip forever 
+        }
+        else { //if not skipping: 
+            let temp = checkForString(file.clone(), index); //temp is a tuple; temp.0 is whether or not we found one; temp.1 is the length of the string we found 
+            if temp.0 { //if temp.0 is true then we found a string
+                println!("{}", getString(file.clone(), index as u64, index as u64+temp.1));
+                numToSkip = temp.1; //now we need to skip the length of the string
+            }
         }
     }
 }
 
-fn getString(file: Vec<u8>, startIndex: u64, endIndex: u64) -> String { 
-    let mut str = String::new(); 
-    for i in startIndex..endIndex { 
-        str.push(file[i as usize] as char); 
+fn getString(file: Vec<u8>, startIndex: u64, endIndex: u64) -> String { //given the indexes in the file and the file, return the string
+    let mut str = String::new(); //blank string
+    for i in startIndex..endIndex { //go through each character that should be part of the string
+        str.push(file[i as usize] as char); //and add them via String.push(char)
     }
     return str;
 }
