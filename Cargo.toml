@@ -1,5 +1,10 @@
 [package]
 
 name = "RStrings"
-version = "0.0.1"
+version = "0.0.2"
 authors = [ "David Dworken <david@daviddworken.com>" ]
+
+[dependencies]
+docopt = "~0.6.11"
+rustc-serialize = "0.3"  # if you're using `derive(RustcDecodable)`
+
