@@ -39,11 +39,28 @@ fn main(){
         .unwrap_or_else(|e| e.exit());
     let filename = args.arg_file.clone();
 
+    if args.flag_help {
+        //do something
+    }
+
     if args.flag_version {
         const VERSION: &'static str = env!("CARGO_PKG_VERSION");
         println!("RStrings {}", VERSION);
         std::process::exit(0);        
     }
+
+    if filename.len() == 0 { //if no filename specified, then we assume there should be something in stdin
+        let mut bytes: Vec<u8> = Vec::new(); //blank vector of u8s
+        let mut reader = io::stdin();
+        bytes = match reader.read_to_end(&mut bytes) { //read the whole file
+            Ok(x) => bytes, //standard ok() err()
+            Err(_) => panic!("Failed to read the file!"), //panic if we can't read from the file
+        };
+        println!("Successfully read input from stdin, starting to search. ");
+        searchFile(bytes, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location);
+        std::process::exit(0);
+    }
+    
 
     println!("Opening {} to search it for strings...", filename);   
     let file = openFile(filename.clone());
@@ -68,9 +85,11 @@ fn checkForString(file: Vec<u8>, index: usize, numBytes: i32, nullBytes: bool) -
         }
         if !isPrintable(file[index+i]){ //if it isn't printable then check if it is long enough yet
             size = i;
-            if size > 5 as usize {   //if it is long enough, then check if we should check if it is null terminated
-                if file[index+i] == 0 { //null terminated
-                    isFound = true; 
+            if size > (numBytes - 1) as usize {   //if it is long enough, then check if we should check if it is null terminated; -1 is to fix OBO error so it will print things with 4 printable characters and 1 nullbyte
+                if !nullBytes { //if nullBytes == true, then don't check for them
+                    if file[index+i] == 0 { //null terminated
+                        isFound = true; 
+                    }
                 }
                 else {
                     isFound = true; 
@@ -83,6 +102,7 @@ fn checkForString(file: Vec<u8>, index: usize, numBytes: i32, nullBytes: bool) -
 }
 
 fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool) { //given a vector of u8 will search the file
+    let mut haveFoundAString = false; //used so we can suggest the --nullbytes flag when it is needed 
     let mut numToSkip = 0;  //the number to skip (used when we find a 5 character string so we don't then print a 4 character string followed by a 3 character and so on
     for (index,char) in file.iter().enumerate() { //index,char b/c we need both
         if numToSkip > 0 { //if we need to skip, do so
@@ -91,10 +111,25 @@ fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, fi
         else { //if not skipping: 
             let temp = checkForString(file.clone(), index, numBytes, nullBytes); //temp is a tuple; temp.0 is whether or not we found one; temp.1 is the length of the string we found 
             if temp.0 { //if temp.0 is true then we found a string
-                println!("{}", getString(file.clone(), index as u64, index as u64+temp.1));
+                haveFoundAString = true;
+                if printFile && !printLocation {
+                    println!("{1}:{0}", getString(file.clone(), index as u64, index as u64+temp.1),filename);
+                }
+                if !printFile && printLocation {
+                    println!("{1}:{0}", getString(file.clone(), index as u64, index as u64+temp.1), index);
+                }
+                if printFile && printLocation {
+                    println!("{1}:{2}:{0}", getString(file.clone(), index as u64, index as u64+temp.1), filename, index);
+                }
+                if !printFile && !printLocation {
+                    println!("{}", getString(file.clone(), index as u64, index as u64+temp.1));
+                }
                 numToSkip = temp.1; //now we need to skip the length of the string
             }
         }
+    }
+    if !haveFoundAString {
+        println!("Failed to find any strings. Are the strings null terminated? Try the --nullbytes flag to disable the null byte requirement. ")
     }
 }
 
