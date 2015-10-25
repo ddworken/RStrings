@@ -20,6 +20,7 @@ Options:
     -l, --location  print the location of the string in the binary (bytes past starting point)
     -h, --help  display this help and exit
     -v, --version  output version information and exit
+    -r, --removerepeats  set to not print strings that are repeated more than 10 times in a row. Note that this has a SMALL (1/590 trillion) chance of causing strings not to print due to hash collisions. 
 ";
 
 #[derive(Debug, RustcDecodable)]
@@ -31,6 +32,7 @@ struct Args {
     flag_location: bool,
     flag_help: bool,
     flag_version: bool,
+    flag_removerepeats: bool,
 }
 
 fn main(){
@@ -57,7 +59,7 @@ fn main(){
             Err(_) => panic!("Failed to read the file!"), //panic if we can't read from the file
         };
         println!("Successfully read input from stdin, starting to search. ");
-        searchFile(bytes, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location);
+        searchFile(bytes, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location, args.flag_removerepeats);
         std::process::exit(0);
     }
     
@@ -65,7 +67,18 @@ fn main(){
     println!("Opening {} to search it for strings...", filename);   
     let file = openFile(filename.clone());
     println!("Opened {}. ", filename);
-    searchFile(file, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location);
+    searchFile(file, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location, args.flag_removerepeats);
+}
+
+fn fastBadHash(str: String) -> u8 { //horrible god awful hashing algorithm but it is fast and good enough (good distribution in the 1 through 30 range so the probability of 10 matches is 1/590 trillion)
+    let bytes = str.into_bytes();
+    let mut hash: u8 = 0;
+    let mut lastByte: u8 = 0;
+    for byte in bytes {
+        hash = byte ^ lastByte; 
+        lastByte = byte;
+    } 
+    return hash;     
 }
 
 fn isPrintable(char: u8) -> bool { //checks whether the character (as a u8) is printable
@@ -101,7 +114,9 @@ fn checkForString(file: Vec<u8>, index: usize, numBytes: i32, nullBytes: bool) -
     return (isFound, size as u64)   //return it as a u64 so it is sufficiently large
 }
 
-fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool) { //given a vector of u8 will search the file
+fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool, removeRepeats: bool) { //given a vector of u8 will search the file
+    let mut hashList: Vec<u8> = Vec::new(); //serves as a cache of the last 10 hashes so we can avoid repeats
+    hashList.push(256u8); //256 is an impossible? value from our hashing algorithm so we start it with that as a starting point
     let mut haveFoundAString = false; //used so we can suggest the --nullbytes flag when it is needed 
     let mut numToSkip = 0;  //the number to skip (used when we find a 5 character string so we don't then print a 4 character string followed by a 3 character and so on
     for (index,char) in file.iter().enumerate() { //index,char b/c we need both
@@ -112,18 +127,38 @@ fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, fi
             let temp = checkForString(file.clone(), index, numBytes, nullBytes); //temp is a tuple; temp.0 is whether or not we found one; temp.1 is the length of the string we found 
             if temp.0 { //if temp.0 is true then we found a string
                 haveFoundAString = true;
-                if printFile && !printLocation {
-                    println!("{1}:{0}", getString(file.clone(), index as u64, index as u64+temp.1),filename);
+                let foundString: String = getString(file.clone(), index as u64, index as u64+temp.1);
+                let hash: u8 = fastBadHash(foundString.clone()); //get the hash of the string (via a *horrible* but fast hashing algorithm)
+                let mut allHashesEqual = true; 
+                for tempHash in hashList.clone() {
+                    if tempHash != hash {
+                        allHashesEqual = false; //if any of the hashes don't match, then we don't skip
+                    }
                 }
-                if !printFile && printLocation {
-                    println!("{1}:{0}", getString(file.clone(), index as u64, index as u64+temp.1), index);
+                if ! (allHashesEqual && removeRepeats /*We found something that is being duplicated*/) { //if we don't need to skip it
+                    if printFile && !printLocation {
+                        println!("{1}:{0}", foundString, filename);
+                    }
+                    else { //if else b/c of the borrower 
+                        if !printFile && printLocation {
+                            println!("{1}:{0}", foundString, index);
+                        }
+                        else {
+                            if printFile && printLocation {
+                                println!("{1}:{2}:{0}", foundString, filename, index);
+                            }
+                            else {
+                                if !printFile && !printLocation {
+                                    println!("{}", foundString);
+                                }
+                            }
+                        }
+                    }
                 }
-                if printFile && printLocation {
-                    println!("{1}:{2}:{0}", getString(file.clone(), index as u64, index as u64+temp.1), filename, index);
+                if hashList.len() > 10 { //only if there are 10 cached hashes should we start removing them
+                    hashList.remove(0); //remnove the first (oldest) element in the cache
                 }
-                if !printFile && !printLocation {
-                    println!("{}", getString(file.clone(), index as u64, index as u64+temp.1));
-                }
+                hashList.push(hash); //add the latest hash to the end of the cache
                 numToSkip = temp.1; //now we need to skip the length of the string
             }
         }
