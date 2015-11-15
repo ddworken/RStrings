@@ -195,7 +195,13 @@ fn checkForString(file: Vec<u8>, index: usize, numBytes: i32, nullBytes: bool, u
             }
             else {
                 if !isPrintableASCII(file[index+i]){
-                    let utf8CheckerTuple = isUTF8(file.clone(), index+i+1); //tuple of (whetherFoundUTF8, number of bytes of UTF8)
+                    let mut utf8CheckerTuple = (false, 0);
+                    if index+i+1 < file.len() && file[index+i+1] > 127 {
+                        utf8CheckerTuple = isUTF8(file.clone(), index+i+1); //tuple of (whetherFoundUTF8, number of bytes of UTF8)
+                    }
+                    else {
+                        utf8CheckerTuple = (false, 0); 
+                    }
                     if utf8CheckerTuple.0 { //if we found a utf8 character
                         numberOfCharacters += 1;      //we found one character but more than 1 byte
                         i += utf8CheckerTuple.1 + 1; //add the number of bytes to our indexIterator
@@ -243,7 +249,6 @@ fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, fi
                     }
                 }
                 if ! (allHashesEqual && removeRepeats /*We found something that is being duplicated*/) { //if we don't need to skip it
-                    println!("{:?}", foundString);
                     if printFile && !printLocation {
                         println!("{1}:{0}", foundString, filename);
                     }
@@ -282,9 +287,10 @@ fn getString(file: Vec<u8>, startIndex: u64, endIndex: u64) -> String { //given 
         vec.push(file[i as usize]);
     }
     let byteArr = &vec[..];
-    let str = match str::from_utf8(byteArr) {
+    let mut str = ""; 
+    str = match str::from_utf8(byteArr) {
                     Ok(n) => n,
-                    Err(err) => {panic!("Failed to parse UTF-8 string. ");},
+                    Err(err) => "",
                 };
     return String::from(str);
 }
@@ -302,4 +308,53 @@ fn openFile(filename: String) -> Vec<u8> { //returns a vector of bytes (where by
         Err(_) => panic!("Failed to read the file!"), //panic if we can't read from the file
     };
     return bytes;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::getString;
+    use super::isUTF8;
+    use super::checkForString; 
+    use super::fastBadHash;
+
+    #[test]
+    fn testGetString() {
+        let vec = vec![104u8, 105u8];
+        assert_eq!(String::from("hi"), getString(vec, 0, 2));
+    }
+
+    #[test]
+    fn testIsUTF8() {
+        let vec = vec![62u8, 194u8, 162u8, 62u8];
+        assert_eq!((true, 2), isUTF8(vec.clone(), 0));
+        assert_eq!(String::from("¢"), getString(vec, 1, 3));
+    }
+
+    #[test]
+    fn testIsNotUTF8() {
+        let vec = vec![62u8, 62u8, 62u8, 62u8];
+        assert_eq!((false, 0), isUTF8(vec.clone(), 0));
+    }
+
+    //searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool, removeRepeats: bool, utf8: bool)
+
+    #[test]
+    fn testCheckForString() {
+        let vec = vec![10u8, 62u8, 63u8, 64u8, 65u8, 66u8, 10u8, 63u8, 64u8, 65u8, 66u8, 67u8, 0u8, 12u8];
+        let numBytes = 4;
+        let mut nullBytes = false; 
+        let utf8 = false; 
+        assert_eq!((false, 0), checkForString(vec.clone(), 0, numBytes, nullBytes, utf8));
+        assert_eq!((false, 5), checkForString(vec.clone(), 1, numBytes, nullBytes, utf8));
+        assert_eq!((false, 4), checkForString(vec.clone(), 2, numBytes, nullBytes, utf8));
+        assert_eq!((true, 5), checkForString(vec.clone(), 7, numBytes, nullBytes, utf8));
+        nullBytes = true;
+        assert_eq!((true, 5), checkForString(vec.clone(), 1, numBytes, nullBytes, utf8));
+    }
+
+    #[test]
+    fn testHash() {
+        assert_eq!(35793, fastBadHash(String::from("testHash")));
+    }
+
 }
