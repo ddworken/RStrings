@@ -1,21 +1,24 @@
+#![allow(non_snake_case)]
+
 extern crate docopt;
 use docopt::Docopt;
 
 extern crate rustc_serialize;
 
 use std::io; //for stdin
-use std::env; 
-use std::path::Path; //for filenames 
 use std::fs::File; //for the file
 use std::io::BufReader; //buffered reader so we can handle large files
 use std::io::Read; //to read from the above file
 use std::str; //to read utf-8
+
+use std::thread; //for concurrency 
 
 const USAGE: &'static str = "
 Usage: rustStrings [options] [<file>]
 
 Options:
     -b, --bytes=<num>  set the number of printable bytes needed for something to qualify as a string [default: 4]
+    -t, --threads=<num>  set the number of threads to use. Note if threads > 1 than the order of the strings found may not match the order of the strings in the file. [default: 1]
     -n, --nullbytes  set to disable the null byte requirement
     -f, --filename  print the name of the file before each line
     -l, --location  print the location of the string in the binary (bytes past starting point)
@@ -29,6 +32,7 @@ Options:
 struct Args {
     arg_file: String,
     flag_bytes: i32,
+    flag_threads: i32,
     flag_nullbytes: bool,
     flag_filename: bool,
     flag_location: bool,
@@ -62,7 +66,7 @@ fn main(){
             Err(_) => panic!("Failed to read the file!"), //panic if we can't read from the file
         };
         println!("Successfully read input from stdin, starting to search. ");
-        searchFile(bytes, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location, args.flag_removerepeats, args.flag_utf8);
+        searchFile(bytes, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location, args.flag_removerepeats, args.flag_utf8, args.flag_threads, false);
         std::process::exit(0);
     }
     
@@ -70,7 +74,7 @@ fn main(){
     println!("Opening {} to search it for strings...", filename);   
     let file = openFile(filename.clone());
     println!("Opened {}. ", filename);
-    searchFile(file, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location, args.flag_removerepeats, args.flag_utf8);
+    searchFile(file, args.flag_bytes, args.flag_nullbytes, args.flag_filename, filename.clone(), args.flag_location, args.flag_removerepeats, args.flag_utf8, args.flag_threads, false);
 }
 
 fn fastBadHash(str: String) -> u32 {  //bad hashing algorithm 32 bit version of: https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
@@ -97,65 +101,52 @@ fn isUTF8(file: Vec<u8>, index: usize) -> (bool, usize) {   //checks if the grou
     }
     let mut foundUTF8 = false;  //used to hold the current status of whether or not we found a utf-8 character
     let mut len = 0;            //used to hold the length (in bytes) of the utf-8 character
-    let mut foundASCII = false; //used to keep track of if we found an ASCII character (if we did then we didn't find a UTF-8 character)
     let lenFile = file.len();   //used for out of range prevention
-    /*for i in 1..4 { //utf8 characters are between 1 and 4 bytes 
-        if index + 1 > lenFile {
-            if !isPrintableASCII(file[index+i]) {
-                foundASCII = true;
-            }
+    /*
+     * Below is a rather hack-ish solution. Rust requires that arrays have compile time defined lengths. 
+     * from_utf8() must be called on an array (not a vector) so we try all possible array lengths 
+     * (2 bytes, 3 bytes, or 4 bytes) individually. 
+    */
+    { //for checking for 2 byte utf-8
+        if index + 1 < lenFile { //check for out of bounds
+            let buf = &[file[index], file[index+1]]; //create the array
+            let s = match str::from_utf8(buf) { //convert it to a UTF-8
+                Ok(n) => {},
+                Err(err) => { //keep track of whether or not we found a UTF-8 char
+                    if foundUTF8 == false {
+                        foundUTF8 = true;
+                        len = 2;
+                    }
+                },
+            };
         }
     }
-    if foundASCII { //if we found an ASCII character, then return false since ASCII != UTF-8
-        return (false, 0);
+    { //for checking for 3 byte utf-8
+        if index + 2 < lenFile {
+            let buf = &[file[index], file[index+1], file[index+2]]; 
+            let s = match str::from_utf8(buf) {
+                Ok(n) => {},
+                Err(err) => {
+                    if foundUTF8 == false {
+                        foundUTF8 = true;
+                        len = 3; 
+                    }
+                },
+            };
+        }
     }
-    else */{
-        /*
-         * Below is a rather hack-ish solution. Rust requires that arrays have compile time defined lengths. 
-         * from_utf8() must be called on an array (not a vector) so we try all possible array lengths 
-         * (2 bytes, 3 bytes, or 4 bytes) individually. 
-        */
-        { //for checking for 2 byte utf-8
-            if index + 1 < lenFile { //check for out of bounds
-                let mut buf = &[file[index], file[index+1]]; //create the array
-                let s = match str::from_utf8(buf) { //convert it to a UTF-8
-                    Ok(n) => {},
-                    Err(err) => { //keep track of whether or not we found a UTF-8 char
-                        if foundUTF8 == false {
-                            foundUTF8 = true;
-                            len = 2;
-                        }
-                    },
-                };
-            }
-        }
-        { //for checking for 3 byte utf-8
-            if index + 2 < lenFile {
-                let mut buf = &[file[index], file[index+1], file[index+2]]; 
-                let s = match str::from_utf8(buf) {
-                    Ok(n) => {},
-                    Err(err) => {
-                        if foundUTF8 == false {
-                            foundUTF8 = true;
-                            len = 3; 
-                        }
-                    },
-                };
-            }
-        }
-        { //for checking for 4 byte utf-8
-            if index + 3 < lenFile {
-                let mut buf = &[file[index], file[index+1], file[index+2], file[index+3]]; 
-                let s = match str::from_utf8(buf) {
-                    Ok(n) => {},
-                    Err(err) => {
-                        if foundUTF8 == false {
-                            foundUTF8 = true;
-                            len = 4; 
-                        }
-                    },
-                };
-            }
+    { //for checking for 4 byte utf-8
+        if index + 3 < lenFile {
+            let buf = &[file[index], file[index+1], file[index+2], file[index+3]]; 
+            let s = match str::from_utf8(buf) {
+                Ok(n) => {},
+                Err(err) => {
+                    if foundUTF8 == false {
+                        foundUTF8 = true;
+                        len = 4; 
+                    }
+                },
+            };
         }
     }
     return (foundUTF8, len);
@@ -167,22 +158,27 @@ fn checkForString(file: Vec<u8>, index: usize, numBytes: i32, nullBytes: bool, u
     let mut i = 0;  //used in the loop{} structure as a counter
     if !utf8 {
         loop {
+            if index+i >= file.len() {
+                break;
+            }
             if isPrintableASCII(file[index+i]){  //if it is printable, then just loop to go to the next one
                 i += 1; //must increment it so we go to the next character in the file
             }
-            if !isPrintableASCII(file[index+i]){ //if it isn't printable then check if it is long enough yet
-                size = i;
-                if size > (numBytes - 1) as usize {   //if it is long enough, then check if we should check if it is null terminated; -1 is to fix OBO error so it will print things with 4 printable characters and 1 nullbyte
-                    if !nullBytes { //if nullBytes == true, then don't check for them
-                        if file[index+i] == 0 { //null terminated
+            else {
+                if !isPrintableASCII(file[index+i]){ //if it isn't printable then check if it is long enough yet
+                    size = i;
+                    if size > (numBytes - 1) as usize {   //if it is long enough, then check if we should check if it is null terminated; -1 is to fix OBO error so it will print things with 4 printable characters and 1 nullbyte
+                        if !nullBytes { //if nullBytes == true, then don't check for them
+                            if file[index+i] == 0 { //null terminated
+                                isFound = true; 
+                            }
+                        }
+                        else {
                             isFound = true; 
                         }
-                    }
-                    else {
-                        isFound = true; 
-                    }
-                } 
-                break; //once we find a non-printable character we break
+                    } 
+                    break; //once we find a non-printable character we break
+                }
             }
         }
     }
@@ -227,57 +223,94 @@ fn checkForString(file: Vec<u8>, index: usize, numBytes: i32, nullBytes: bool, u
     return (isFound, size as u64)   //return it as a u64 so it is sufficiently large
 }
 
-fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool, removeRepeats: bool, utf8: bool) { //given a vector of u8 will search the file
-    let mut hashList: Vec<u32> = Vec::new(); //serves as a cache of the last 10 hashes so we can avoid repeats
-    hashList.push(0); //256 is an impossible? value from our hashing algorithm so we start it with that as a starting point
-    let mut haveFoundAString = false; //used so we can suggest the --nullbytes flag when it is needed 
-    let mut numToSkip = 0;  //the number to skip (used when we find a 5 character string so we don't then print a 4 character string followed by a 3 character and so on
-    for (index,char) in file.iter().enumerate() { //index,char b/c we need both
-        if numToSkip > 0 { //if we need to skip, do so
-            numToSkip -= 1; //decrement it so we don't skip forever 
-        }
-        else { //if not skipping: 
-            let temp = checkForString(file.clone(), index, numBytes, nullBytes, utf8); //temp is a tuple; temp.0 is whether or not we found one; temp.1 is the length of the string we found 
-            if temp.0 { //if temp.0 is true then we found a string
-                haveFoundAString = true;
-                let foundString: String = getString(file.clone(), index as u64, index as u64+temp.1);
-                let hash: u32 = fastBadHash(foundString.clone()); //get the hash of the string (via a *horrible* but fast hashing algorithm)
-                let mut allHashesEqual = true; 
-                for tempHash in hashList.clone() {
-                    if tempHash != hash {
-                        allHashesEqual = false; //if any of the hashes don't match, then we don't skip
-                    }
-                }
-                if ! (allHashesEqual && removeRepeats /*We found something that is being duplicated*/) { //if we don't need to skip it
-                    if printFile && !printLocation {
-                        println!("{1}:{0}", foundString, filename);
-                    }
-                    else { //if else b/c of the borrower 
-                        if !printFile && printLocation {
-                            println!("{1}:{0}", foundString, index);
+fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool, removeRepeats: bool, utf8: bool, threads: i32, inThread: bool) { //given a vector of u8 will search the file
+    if threads == 1 {
+        let mut hashList: Vec<u32> = Vec::new(); //serves as a cache of the last 10 hashes so we can avoid repeats
+        hashList.push(0); //256 is an impossible? value from our hashing algorithm so we start it with that as a starting point
+        let mut haveFoundAString = false; //used so we can suggest the --nullbytes flag when it is needed 
+        let mut numToSkip = 0;  //the number to skip (used when we find a 5 character string so we don't then print a 4 character string followed by a 3 character and so on
+        for (index,char) in file.iter().enumerate() { //index,char b/c we need both
+            if numToSkip > 0 { //if we need to skip, do so
+                numToSkip -= 1; //decrement it so we don't skip forever 
+            }
+            else { //if not skipping: 
+                let temp = checkForString(file.clone(), index, numBytes, nullBytes, utf8); //temp is a tuple; temp.0 is whether or not we found one; temp.1 is the length of the string we found 
+                if temp.0 { //if temp.0 is true then we found a string
+                    haveFoundAString = true;
+                    let foundString: String = getString(file.clone(), index as u64, index as u64+temp.1);
+                    let hash: u32 = fastBadHash(foundString.clone()); //get the hash of the string (via a *horrible* but fast hashing algorithm)
+                    let mut allHashesEqual = true; 
+                    for tempHash in hashList.clone() {
+                        if tempHash != hash {
+                            allHashesEqual = false; //if any of the hashes don't match, then we don't skip
                         }
-                        else {
-                            if printFile && printLocation {
-                                println!("{1}:{2}:{0}", foundString, filename, index);
+                    }
+                    if ! (allHashesEqual && removeRepeats /*We found something that is being duplicated*/) { //if we don't need to skip it
+                        if printFile && !printLocation {
+                            println!("{1}:{0}", foundString, filename);
+                        }
+                        else { //if else b/c of the borrower 
+                            if !printFile && printLocation {
+                                println!("{1}:{0}", foundString, index);
                             }
                             else {
-                                if !printFile && !printLocation {
-                                    println!("{}", foundString);
+                                if printFile && printLocation {
+                                    println!("{1}:{2}:{0}", foundString, filename, index);
+                                }
+                                else {
+                                    if !printFile && !printLocation {
+                                        println!("{}", foundString);
+                                    }
                                 }
                             }
                         }
                     }
+                    if hashList.len() > 10 { //only if there are 10 cached hashes should we start removing them
+                        hashList.remove(0); //remnove the first (oldest) element in the cache
+                    }
+                    hashList.push(hash); //add the latest hash to the end of the cache
+                    numToSkip = temp.1; //now we need to skip the length of the string
                 }
-                if hashList.len() > 10 { //only if there are 10 cached hashes should we start removing them
-                    hashList.remove(0); //remnove the first (oldest) element in the cache
-                }
-                hashList.push(hash); //add the latest hash to the end of the cache
-                numToSkip = temp.1; //now we need to skip the length of the string
             }
         }
+        if !haveFoundAString && !inThread {
+            println!("Failed to find any strings. Are the strings null terminated? Try the --nullbytes flag to disable the null byte requirement. If you need UTF-8 support, use the --utf8 flag to enable utf8 support. ")
+        }
     }
-    if !haveFoundAString {
-        println!("Failed to find any strings. Are the strings null terminated? Try the --nullbytes flag to disable the null byte requirement. If you need UTF-8 support, use the --utf8 flag to enable utf8 support. ")
+    if threads > 1 {
+        let mut files: Vec<Vec<u8>> = Vec::new(); //a vector of files (which can each be treated as a normal file)
+        let lenOriginaFile = file.len(); 
+        if lenOriginaFile < 1000 { //if it is less than 1KB
+            panic!("Cannot use multiple threads on files less than 1KB in size. ");
+        }
+        let lenChunkPerThread = lenOriginaFile / threads as usize; //the number of bytes given to each thread
+        for i in 0..threads { //initialize the vectors that will each hold the bytes in 1 file
+            files.push(Vec::new());
+        }
+        let mut currentThread = 0;
+        for (index,byte) in file.iter().enumerate() { //splits the file into n files 
+            if index > 0 && index % lenChunkPerThread == 0 {
+                if !(currentThread == threads-1) {  //makes it so the extra n bytes at the end (from integer division) are just stuck on the last thread
+                    currentThread += 1
+                }
+            }
+            files[currentThread as usize].push(*byte);
+        }
+        for vec in files.iter() {
+            println!("Length: {:?}", vec.len());
+        }
+        let mut children = vec![];
+        let isInThread = true; 
+        for i in 0..threads {
+            let tempFile = files[i as usize].clone();
+            let tempFilename = filename.clone();
+            children.push(thread::spawn(move || {
+                searchFile(tempFile, numBytes, nullBytes, printFile, tempFilename, printLocation, removeRepeats, utf8, 1, isInThread);
+            }));
+        }
+        for child in children {
+            let _ = child.join();
+        }
     }
 }
 
@@ -287,8 +320,7 @@ fn getString(file: Vec<u8>, startIndex: u64, endIndex: u64) -> String { //given 
         vec.push(file[i as usize]);
     }
     let byteArr = &vec[..];
-    let mut str = ""; 
-    str = match str::from_utf8(byteArr) {
+    let str = match str::from_utf8(byteArr) {
                     Ok(n) => n,
                     Err(err) => "",
                 };
@@ -296,7 +328,7 @@ fn getString(file: Vec<u8>, startIndex: u64, endIndex: u64) -> String { //given 
 }
 
 fn openFile(filename: String) -> Vec<u8> { //returns a vector of bytes (where byte == u8) in the file with the given filename
-    let mut file = match File::open(filename) { //this is creating the file variable
+    let file = match File::open(filename) { //this is creating the file variable
         Ok(file) => file,                       //standard ok() and Err() syntax to check for errors
         Err(_) => panic!("Failed to open the file!"), //if we can't open it, then panic
     };
@@ -307,7 +339,6 @@ fn openFile(filename: String) -> Vec<u8> { //returns a vector of bytes (where by
         Ok(x) => bytes, //standard ok() err()
         Err(_) => panic!("Failed to read the file!"), //panic if we can't read from the file
     };
-    return bytes;
 }
 
 #[cfg(test)]
