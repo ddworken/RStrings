@@ -12,13 +12,14 @@ use std::io::Read; //to read from the above file
 use std::str; //to read utf-8
 
 use std::thread; //for concurrency 
+extern crate num_cpus; //for autodetection of cpu count
 
 const USAGE: &'static str = "
 Usage: rustStrings [options] [<file>]
 
 Options:
     -b, --bytes=<num>  set the number of printable bytes needed for something to qualify as a string [default: 4]
-    -t, --threads=<num>  set the number of threads to use. Note if threads > 1 than the order of the strings found may not match the order of the strings in the file. [default: 1]
+    -t, --threads=<num>  set the number of threads to use. Use 0 to automatically detect the optimal number of threads. Note if threads > 1 than the order of the strings found may not match the order of the strings in the file. [default: 1]
     -n, --nullbytes  set to disable the null byte requirement
     -f, --filename  print the name of the file before each line
     -l, --location  print the location of the string in the binary (bytes past starting point)
@@ -102,52 +103,17 @@ fn isUTF8(file: Vec<u8>, index: usize) -> (bool, usize) {   //checks if the grou
     let mut foundUTF8 = false;  //used to hold the current status of whether or not we found a utf-8 character
     let mut len = 0;            //used to hold the length (in bytes) of the utf-8 character
     let lenFile = file.len();   //used for out of range prevention
-    /*
-     * Below is a rather hack-ish solution. Rust requires that arrays have compile time defined lengths. 
-     * from_utf8() must be called on an array (not a vector) so we try all possible array lengths 
-     * (2 bytes, 3 bytes, or 4 bytes) individually. 
-    */
-    { //for checking for 2 byte utf-8
-        if index + 1 < lenFile { //check for out of bounds
-            let buf = &[file[index], file[index+1]]; //create the array
-            let s = match str::from_utf8(buf) { //convert it to a UTF-8
-                Ok(n) => {},
-                Err(err) => { //keep track of whether or not we found a UTF-8 char
-                    if foundUTF8 == false {
-                        foundUTF8 = true;
-                        len = 2;
-                    }
-                },
-            };
-        }
-    }
-    { //for checking for 3 byte utf-8
-        if index + 2 < lenFile {
-            let buf = &[file[index], file[index+1], file[index+2]]; 
-            let s = match str::from_utf8(buf) {
-                Ok(n) => {},
-                Err(err) => {
-                    if foundUTF8 == false {
-                        foundUTF8 = true;
-                        len = 3; 
-                    }
-                },
-            };
-        }
-    }
-    { //for checking for 4 byte utf-8
-        if index + 3 < lenFile {
-            let buf = &[file[index], file[index+1], file[index+2], file[index+3]]; 
-            let s = match str::from_utf8(buf) {
-                Ok(n) => {},
-                Err(err) => {
-                    if foundUTF8 == false {
-                        foundUTF8 = true;
-                        len = 4; 
-                    }
-                },
-            };
-        }
+    let buf = &[file[index], file[index+1], file[index+2], file[index+3]];
+    for i in 1..4 { //1,2,3
+        let s = match str::from_utf8(&buf[0..i]) { //convert it to a UTF-8
+            Ok(n) => {},
+            Err(err) => { //keep track of whether or not we found a UTF-8 char
+                if foundUTF8 == false {
+                    foundUTF8 = true;
+                    len = i+1;
+                }
+            },
+        };
     }
     return (foundUTF8, len);
 }
@@ -223,7 +189,7 @@ fn checkForString(file: Vec<u8>, index: usize, numBytes: i32, nullBytes: bool, u
     return (isFound, size as u64)   //return it as a u64 so it is sufficiently large
 }
 
-fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool, removeRepeats: bool, utf8: bool, threads: i32, inThread: bool) { //given a vector of u8 will search the file
+fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, filename: String, printLocation: bool, removeRepeats: bool, utf8: bool, mut threads: i32, inThread: bool) { //given a vector of u8 will search the file
     if threads == 1 {
         let mut hashList: Vec<u32> = Vec::new(); //serves as a cache of the last 10 hashes so we can avoid repeats
         hashList.push(0); //256 is an impossible? value from our hashing algorithm so we start it with that as a starting point
@@ -276,6 +242,9 @@ fn searchFile(file: Vec<u8>, numBytes: i32, nullBytes: bool, printFile: bool, fi
         if !haveFoundAString && !inThread {
             println!("Failed to find any strings. Are the strings null terminated? Try the --nullbytes flag to disable the null byte requirement. If you need UTF-8 support, use the --utf8 flag to enable utf8 support. ")
         }
+    }
+    if threads == 0 {
+        threads = num_cpus::get() as i32 * 16;
     }
     if threads > 1 {
         let mut files: Vec<Vec<u8>> = Vec::new(); //a vector of files (which can each be treated as a normal file)
@@ -357,7 +326,7 @@ mod tests {
     #[test]
     fn testIsUTF8() {
         let vec = vec![62u8, 194u8, 162u8, 62u8];
-        assert_eq!((true, 2), isUTF8(vec.clone(), 0));
+        assert_eq!((true, 3), isUTF8(vec.clone(), 0));
         assert_eq!(String::from("¢"), getString(vec, 1, 3));
     }
 
@@ -387,5 +356,4 @@ mod tests {
     fn testHash() {
         assert_eq!(35793, fastBadHash(String::from("testHash")));
     }
-
 }
