@@ -1,0 +1,4 @@
+     Running `target/debug/RustStrings --nullbytes testCases/short`
+Opening testCases/short to search it for strings...
+Opened testCases/short. 
+short

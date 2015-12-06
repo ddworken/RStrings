@@ -12,7 +12,7 @@ use std::io::Read; //to read from the above file
 use std::str; //to read utf-8
 
 use std::thread; //for concurrency 
-extern crate num_cpus; //for autodetection of cpu count
+extern crate num_cpus; //for autodetection of cpu count 
 
 const USAGE: &'static str = "
 Usage: rustStrings [options] [<file>]
@@ -312,10 +312,94 @@ fn openFile(filename: String) -> Vec<u8> { //returns a vector of bytes (where by
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command; //for executing external python test suite
+
+    use std::str; //to read utf-8
+
     use super::getString;
     use super::isUTF8;
     use super::checkForString; 
     use super::fastBadHash;
+    use super::openFile; 
+    use super::isPrintableASCII; 
+
+    #[test]
+    fn testHelloWorld() {
+        let status = Command::new("cargo").arg("run").arg("--").arg("./testCases/a.out").output().unwrap_or_else(|e| {
+            panic!("failed to execute process: {}", e)
+        });
+        let str = match str::from_utf8(&status.stdout) {
+                    Ok(n) => n,
+                    Err(err) => "",
+                };
+        let output = String::from(str);
+        assert_eq!(36246, fastBadHash(output)); //easier to embed a hash of the output than the output, the output is stored in the testcases directory. If this test fails check the cached output
+    }
+
+    #[test]
+    fn testHelloWorldUnicode() {
+        let status = Command::new("cargo").arg("run").arg("--").arg("--utf8").arg("./testCases/unicodeBinary").output().unwrap_or_else(|e| {
+            panic!("failed to execute process: {}", e)
+        });
+        let str = match str::from_utf8(&status.stdout) {
+                    Ok(n) => n,
+                    Err(err) => "",
+                };
+        let output = String::from(str);
+        assert_eq!(14675, fastBadHash(output)); //easier to embed a hash of the output than the output, the output is stored in the testcases directory. If this test fails check the cached output
+    }
+
+    #[test]
+    fn testNullBytes() {
+        let status = Command::new("cargo").arg("run").arg("--").arg("--nullbytes").arg("--utf8").arg("./testCases/short").output().unwrap_or_else(|e| {
+            panic!("failed to execute process: {}", e)
+        });
+        let str = match str::from_utf8(&status.stdout) {
+                    Ok(n) => n,
+                    Err(err) => "",
+                };
+        let output = String::from(str);
+        assert_eq!(61590, fastBadHash(output)); //easier to embed a hash of the output than the output, the output is stored in the testcases directory. If this test fails check the cached output
+    }
+
+    #[test]
+    fn testRemoveRepeats() {
+        let status = Command::new("cargo").arg("run").arg("--").arg("--removerepeats").arg("--nullbytes").arg("./testCases/repeated").output().unwrap_or_else(|e| {
+            panic!("failed to execute process: {}", e)
+        });
+        let str = match str::from_utf8(&status.stdout) {
+                    Ok(n) => n,
+                    Err(err) => "",
+                };
+        let output = String::from(str);
+        assert_eq!(17811, fastBadHash(output)); //easier to embed a hash of the output than the output, the output is stored in the testcases directory. If this test fails check the cached output
+    }
+
+    #[test]
+    fn testLocationAndFilename() {
+        let status = Command::new("cargo").arg("run").arg("--").arg("--location").arg("--filename").arg("--nullbytes").arg("./testCases/repeated").output().unwrap_or_else(|e| {
+            panic!("failed to execute process: {}", e)
+        });
+        let str = match str::from_utf8(&status.stdout) {
+                    Ok(n) => n,
+                    Err(err) => "",
+                };
+        let output = String::from(str);
+        assert_eq!(29860, fastBadHash(output)); //easier to embed a hash of the output than the output, the output is stored in the testcases directory. If this test fails check the cached output
+    }
+
+    #[test]
+    fn testThreads() {
+        let status = Command::new("cargo").arg("run").arg("--").arg("--threads=4").arg("./testCases/a.out").output().unwrap_or_else(|e| {
+            panic!("failed to execute process: {}", e)
+        });
+        let str = match str::from_utf8(&status.stdout) {
+                    Ok(n) => n,
+                    Err(err) => "",
+                };
+        let output = String::from(str);
+        assert_eq!(50093, fastBadHash(output)); //easier to embed a hash of the output than the output, the output is stored in the testcases directory. If this test fails check the cached output
+    }
 
     #[test]
     fn testGetString() {
@@ -355,5 +439,16 @@ mod tests {
     #[test]
     fn testHash() {
         assert_eq!(35793, fastBadHash(String::from("testHash")));
+    }
+
+    #[test]
+    fn testOpenFile() {
+        openFile(String::from("/home/david/code/strings/RStrings/src/main.rs"));
+    }
+
+    #[test]
+    fn testIsASCII() {
+        assert_eq!(true, isPrintableASCII(97u8));
+        assert_eq!(false, isPrintableASCII(10u8));
     }
 }

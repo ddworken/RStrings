@@ -1,0 +1,14 @@
+     Running `target/debug/RustStrings --removerepeats --nullbytes testCases/repeated`
+Opening testCases/repeated to search it for strings...
+Opened testCases/repeated. 
+short
+short
+short
+short
+short
+short
+short
+short
+short
+short
+short

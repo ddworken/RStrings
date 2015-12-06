@@ -1,0 +1,42 @@
+     Running `target/debug/RustStrings --location --filename --nullbytes ./testCases/repeated`
+Opening ./testCases/repeated to search it for strings...
+Opened ./testCases/repeated. 
+./testCases/repeated:0:short
+./testCases/repeated:6:short
+./testCases/repeated:12:short
+./testCases/repeated:18:short
+./testCases/repeated:24:short
+./testCases/repeated:30:short
+./testCases/repeated:36:short
+./testCases/repeated:42:short
+./testCases/repeated:48:short
+./testCases/repeated:54:short
+./testCases/repeated:60:short
+./testCases/repeated:66:short
+./testCases/repeated:72:short
+./testCases/repeated:78:short
+./testCases/repeated:84:short
+./testCases/repeated:90:short
+./testCases/repeated:96:short
+./testCases/repeated:102:short
+./testCases/repeated:108:short
+./testCases/repeated:114:short
+./testCases/repeated:120:short
+./testCases/repeated:126:short
+./testCases/repeated:132:short
+./testCases/repeated:138:short
+./testCases/repeated:144:short
+./testCases/repeated:150:short
+./testCases/repeated:156:short
+./testCases/repeated:162:short
+./testCases/repeated:168:short
+./testCases/repeated:174:short
+./testCases/repeated:180:short
+./testCases/repeated:186:short
+./testCases/repeated:192:short
+./testCases/repeated:198:short
+./testCases/repeated:204:short
+./testCases/repeated:210:short
+./testCases/repeated:216:short
+./testCases/repeated:222:short
+./testCases/repeated:228:short
